@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Shoe Rack - IoT Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👟</text></svg>">
+  <link rel="stylesheet" href="style.css">
+  <!-- Library MQTT.js untuk komunikasi real-time dengan ESP32 -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo-icon">👟</div>
+        <div>
+          <h1>Smart Shoe Rack IoT</h1>
+          <p>Monitoring Kelembapan, Sterilisasi UV-C & Keamanan Pintu</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-simulasi" class="btn-sim" onclick="toggleSimulasi()">Mode Simulasi: OFF</button>
+        <div id="status-koneksi" class="status-badge offline">Menghubungkan MQTT...</div>
+      </div>
+    </header>
+
+    <!-- Peringatan Keamanan Pintu -->
+    <div id="banner-pintu" class="safety-banner hidden">
+      <span class="banner-icon">⚠️</span>
+      <div>
+        <strong>PERINGATAN KEAMANAN PINTU:</strong> Pintu rak sepatu dalam kondisi <strong>TERBUKA</strong>! Lampu UV-C dan Timer otomatis dikunci/dimatikan demi keamanan mata dan kulit.
+      </div>
+    </div>
+
+    <!-- 5 Fitur Utama dalam Kartu Monitoring -->
+    <section class="metrics-grid">
+      <!-- 1. Suhu & Kelembapan DHT22 -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">1. Kelembapan (DHT22)</span>
+          <span class="tag">RH</span>
+        </div>
+        <div class="card-main">
+          <span id="val-kelembapan" class="big-num">--</span>
+          <span class="unit">%</span>
+        </div>
+        <div class="progress-bar">
+          <div id="bar-kelembapan" class="progress-fill" style="width: 0%;"></div>
+        </div>
+        <p class="card-sub">Batas Otomatis: <strong id="text-threshold">75</strong>%</p>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Suhu Ruangan (DHT22)</span>
+          <span class="tag">TEMP</span>
+        </div>
+        <div class="card-main">
+          <span id="val-suhu" class="big-num">--</span>
+          <span class="unit">°C</span>
+        </div>
+        <p class="card-sub">Kondisi termal di dalam rak</p>
+      </div>
+
+      <!-- 2. Status ON/OFF Lampu UV -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">2. Status Lampu UV-C</span>
+          <span id="pill-uv" class="pill off">OFF</span>
+        </div>
+        <div class="card-main">
+          <span id="text-uv-status" class="status-big off">MATI</span>
+        </div>
+        <p class="card-sub" id="sub-uv">Exhaust Fan: <strong id="text-fan-status">OFF</strong></p>
+      </div>
+
+      <!-- 3. Estimasi Waktu Selesai -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">3. Estimasi Waktu Selesai</span>
+          <span class="tag">ETA</span>
+        </div>
+        <div class="card-main">
+          <span id="val-estimasi" class="big-num clock">--:--</span>
+        </div>
+        <p class="card-sub" id="sub-estimasi">Sisa waktu: <strong id="val-countdown">00:00</strong></p>
+      </div>
+
+      <!-- 5. Deteksi Pintu Tertutup atau Tidak -->
+      <div class="card" id="card-pintu">
+        <div class="card-header">
+          <span class="card-title">5. Deteksi Pintu (MC-38)</span>
+          <span id="pill-pintu" class="pill">--</span>
+        </div>
+        <div class="card-main">
+          <span id="val-pintu" class="status-big">--</span>
+        </div>
+        <p class="card-sub" id="sub-pintu">Menunggu sinyal sensor magnetik...</p>
+      </div>
+    </section>
+
+    <!-- Panel Kontrol & 4. Pengaturan Waktu / Timer -->
+    <section class="control-section">
+      <!-- Panel 4: Pengaturan Waktu / Timer -->
+      <div class="panel">
+        <h2>4. Pengaturan Waktu / Timer Lampu UV-C</h2>
+        <p class="panel-desc">Pilih durasi penyinaran UV-C & pengeringan. Sistem menghitung otomatis jam estimasi selesai.</p>
+
+        <div class="preset-grid">
+          <button class="btn-preset" onclick="mulaiTimer(5)">5 Menit</button>
+          <button class="btn-preset" onclick="mulaiTimer(15)">15 Menit</button>
+          <button class="btn-preset" onclick="mulaiTimer(30)">30 Menit</button>
+          <button class="btn-preset" onclick="mulaiTimer(60)">60 Menit</button>
+        </div>
+
+        <div class="form-group">
+          <label for="input-menit">Atau masukkan durasi kustom (Menit):</label>
+          <div class="input-action">
+            <input type="number" id="input-menit" min="1" max="240" placeholder="Contoh: 20">
+            <button class="btn btn-primary" onclick="mulaiTimerKustom()">Mulai Timer</button>
+            <button class="btn btn-danger" onclick="hentikanTimer()">Reset / Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel Kontrol Manual & Mode Otomatis -->
+      <div class="panel">
+        <h2>Kontrol Lampu UV-C & Mode Operasi</h2>
+        <p class="panel-desc">Atur sakelar lampu UV-C secara manual atau gunakan mode otomatis berbasis sensor kelembapan DHT22.</p>
+
+        <div class="switch-row">
+          <div>
+            <strong>Mode Operasi Sistem:</strong>
+            <span id="badge-mode" class="mode-badge">AUTO</span>
+          </div>
+          <div class="btn-pair">
+            <button class="btn btn-outline" onclick="ubahMode('AUTO')">Mode AUTO</button>
+            <button class="btn btn-outline" onclick="ubahMode('MANUAL')">Mode MANUAL</button>
+          </div>
+        </div>
+
+        <hr>
+
+        <div class="switch-row">
+          <div>
+            <strong>Sakelar Manual Lampu UV-C (8W)</strong>
+            <p class="mini-note">Hanya aktif jika pintu dalam status TERTUTUP</p>
+          </div>
+          <div class="btn-pair">
+            <button class="btn btn-success" onclick="kontrolUV(true)">Nyalakan UV</button>
+            <button class="btn btn-danger" onclick="kontrolUV(false)">Matikan UV</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 16px;">
+          <label for="input-threshold">Batas Kelembapan Mode AUTO (%):</label>
+          <div class="input-action">
+            <input type="number" id="input-threshold" min="40" max="95" value="75">
+            <button class="btn btn-secondary" onclick="simpanThreshold()">Terapkan</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

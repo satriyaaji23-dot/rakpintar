@@ -1,0 +1,8 @@
+.git
+.gitignore
+.vercel
+auto-push.ps1
+node_modules
+.DS_Store
+*.log
+
