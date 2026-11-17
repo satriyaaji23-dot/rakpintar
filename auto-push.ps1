@@ -17,3 +17,4 @@ if ($status) {
   Write-Host "Tidak ada perubahan baru untuk di-commit. Mengecek push ke origin/$branch..."
   git push origin $branch
 }
+
